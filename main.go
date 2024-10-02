@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,8 +27,11 @@ type TimeoutEvent struct {
 	Emit        string `json:"emit"`
 }
 
-type TimeoutResponse struct {
-	Message string `json:"message"`
+// This is the response that's sent to the webhook
+type TimeoutMessage struct {
+	EventID       string `json:"event_id"`
+	Message       string `json:"message"`
+	TimeInitiated string `json:"time_initiated"`
 }
 
 // Input cancel event struct
@@ -47,8 +51,6 @@ func main() {
 
 	// System goroutine;
 	wg.Add(1)
-	// TODO substitute this with the actual endpoint, see if we need to pull this
-	// from an environment variable
 
 	// Handle when a user tries to register a timeout
 	// Spawn the goroutine
@@ -76,10 +78,21 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			timeInitiated := time.Now()
 
 			cancelInstance := time.AfterFunc(time.Duration(request.TimeoutMins)*time.Second, func() {
 				fmt.Println("Emitting Event -> ", request)
 				// Make the webhook call with emit
+				response := TimeoutMessage{
+					Message:       request.Emit,
+					TimeInitiated: timeInitiated.String(),
+				}
+				response_bytes, err := json.Marshal(response)
+				if err != nil {
+					fmt.Println(fmt.Errorf("Something went wrong ", err))
+				}
+				// TODO better error handling and logging
+				http.Post(WEBHOOK_URL, "application/json", bytes.NewReader(response_bytes))
 			})
 
 			// Add metadata
@@ -108,6 +121,24 @@ func main() {
 		state.Lock()
 		state.TimerMap[request.EventID].Stop()
 		state.Unlock()
+	})
+
+	// placeholder for the webhook
+	mux.HandleFunc("POST /webhook", func(w http.ResponseWriter, r *http.Request) {
+
+		// parse all the arguments
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			fmt.Println(fmt.Errorf("Something broke -> %v", err))
+		}
+		var request TimeoutMessage
+		err = json.Unmarshal(body, &request)
+		if err != nil {
+			fmt.Println(fmt.Errorf("Something broke -> %v", err))
+		}
+
+		fmt.Printf("Recieved webhook request -> ID %s Message -> %s\n", request.EventID, request.Message)
+
 	})
 
 	var systemwg sync.WaitGroup

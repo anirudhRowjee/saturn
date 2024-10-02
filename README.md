@@ -1,6 +1,6 @@
 # Kronos - a Timer Daemon
 
-Kronos is a timer daemon built on golang's `time.AfterFunc`. It fires an event to a given webhook after a specified duration, returning user-assigned content.
+Kronos is an in-memory timer daemon built on golang's `time.AfterFunc`. It fires an event to a given webhook after a specified duration, returning user-assigned content.
 
 ## Usage 
 
