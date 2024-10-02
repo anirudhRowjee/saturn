@@ -1,3 +1,3 @@
-module github.com/anirudhRowjee/kronos
+module github.com/anirudhRowjee/saturn
 
 go 1.23.2

@@ -1,22 +1,26 @@
-# Kronos - a Timer Daemon
+# Saturn - a Timer Daemon
 
-Kronos is an in-memory timer daemon built on golang's `time.AfterFunc`. It fires an event to a given webhook after a specified duration, returning user-assigned content.
+Saturn is an in-memory timer daemon built on golang's `time.AfterFunc`. It fires an event to a given webhook after a specified duration, returning user-assigned content.
 
 ## Usage 
+
+```bash
+$ go run main.go
+```
 
 Submit a POST request of the following format:
 
 ```
 curl --header "Content-Type: application/json" \
   --request POST \
-  --data '{ "event_id": "first", "timeout_minutes": 10, "emit": "lol" }' \
+  --data '{ "event_id": "first", "timeout_seconds": 10, "emit": "lol" }' \
   http://localhost:3000/register
 
 ```
 
-And recieve a POST request on a specified webhook URL, after _X_ Minutes, with the following format:
+And recieve a POST request on a specified webhook URL, after 10 Minutes, with the following format:
 ```json
-{"event_id": "", "emit": "", "time_initiated": ""}
+{"event_id": "first", "message": "lol", "time_initiated": ""}
 ```
 
 Alternatively, you can cancel a timeout with the following  -

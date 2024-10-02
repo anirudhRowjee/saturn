@@ -23,7 +23,7 @@ type TimerMap struct {
 // Input event type
 type TimeoutEvent struct {
 	EventID     string `json:"event_id"`
-	TimeoutMins int    `json:"timeout_mins"`
+	TimeoutSecs int    `json:"timeout_seconds"`
 	Emit        string `json:"emit"`
 }
 
@@ -66,11 +66,11 @@ func main() {
 			fmt.Println(fmt.Errorf("Something broke -> %v", err))
 		}
 
-		fmt.Printf("Recieved request -> ID %s TIMEOUT %d EMIT %s\n", request.EventID, request.TimeoutMins, request.Emit)
+		fmt.Printf("Recieved request -> ID %s TIMEOUT %d EMIT %s\n", request.EventID, request.TimeoutSecs, request.Emit)
 
 		// validate the request
-		if request.TimeoutMins > 60 || request.TimeoutMins <= 0 {
-			fmt.Println(fmt.Errorf("Duration of %d is illegal!", request.TimeoutMins))
+		if request.TimeoutSecs > 60*60 || request.TimeoutSecs <= 0 {
+			fmt.Println(fmt.Errorf("Duration of %d is illegal!", request.TimeoutSecs))
 			// send the error message to the webhook
 		}
 
@@ -80,7 +80,7 @@ func main() {
 			defer wg.Done()
 			timeInitiated := time.Now()
 
-			cancelInstance := time.AfterFunc(time.Duration(request.TimeoutMins)*time.Second, func() {
+			cancelInstance := time.AfterFunc(time.Duration(request.TimeoutSecs)*time.Second, func() {
 				fmt.Println("Emitting Event -> ", request)
 				// Make the webhook call with emit
 				response := TimeoutMessage{
@@ -89,7 +89,7 @@ func main() {
 				}
 				response_bytes, err := json.Marshal(response)
 				if err != nil {
-					fmt.Println(fmt.Errorf("Something went wrong ", err))
+					fmt.Println(fmt.Errorf("Something went wrong -> %v", err))
 				}
 				// TODO better error handling and logging
 				http.Post(WEBHOOK_URL, "application/json", bytes.NewReader(response_bytes))
