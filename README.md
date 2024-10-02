@@ -5,7 +5,10 @@ Saturn is an in-memory timer daemon built on golang's `time.AfterFunc`. It fires
 ## Usage 
 
 ```bash
-$ go run main.go
+# if you have a pre-defined webhook URL:
+$ go run main.go --webhook_url="http://<YOUR API ENDPOINT HERE>"
+# if you don't, and just want to see how it works
+$ go run main.go 
 ```
 
 Submit a POST request of the following format:
@@ -18,7 +21,7 @@ curl --header "Content-Type: application/json" \
 
 ```
 
-And recieve a POST request on a specified webhook URL, after 10 Minutes, with the following format:
+And recieve a POST request on a specified webhook URL, after 10 seconds, with the following format:
 ```json
 {"event_id": "first", "message": "lol", "time_initiated": ""}
 ```

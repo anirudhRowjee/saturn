@@ -3,15 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"sync"
 	"time"
 )
-
-// TODO get this in from the command line
-const WEBHOOK_URL string = "http://localhost:3000/webhook"
 
 type TimerMap struct {
 	sync.Mutex
@@ -39,11 +37,17 @@ type CancelEvent struct {
 	EventID string `json:"event_id"`
 }
 
-type CancalResponse struct {
+type CancelResponse struct {
 	Message string `json:"message"`
 }
 
 func main() {
+
+	WEBHOOK_URL := flag.String("webhook_url", "http://localhost:3000/test", "where do you want your emitted event to go?")
+	flag.Parse()
+
+	fmt.Printf("Sending events on webhook URL %s\n", *WEBHOOK_URL)
+
 	mux := http.NewServeMux()
 	state := TimerMap{}
 	state.TimerMap = make(map[string]*time.Timer)
@@ -84,6 +88,7 @@ func main() {
 				fmt.Println("Emitting Event -> ", request)
 				// Make the webhook call with emit
 				response := TimeoutMessage{
+					EventID:       request.EventID,
 					Message:       request.Emit,
 					TimeInitiated: timeInitiated.String(),
 				}
@@ -92,7 +97,7 @@ func main() {
 					fmt.Println(fmt.Errorf("Something went wrong -> %v", err))
 				}
 				// TODO better error handling and logging
-				http.Post(WEBHOOK_URL, "application/json", bytes.NewReader(response_bytes))
+				http.Post(*WEBHOOK_URL, "application/json", bytes.NewReader(response_bytes))
 			})
 
 			// Add metadata
