@@ -6,15 +6,24 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sync"
 	"time"
 )
 
+// global structure defintions
+
+type TimerMapValue struct {
+	timer    *time.Timer
+	duration time.Duration
+	initTime time.Time
+}
+
 type TimerMap struct {
 	sync.Mutex
 	// This is the actual map that contains the list of timer objects
-	TimerMap   map[string]*time.Timer
+	TimerMap   map[string]TimerMapValue
 	cancelList []string
 }
 
@@ -41,16 +50,28 @@ type CancelResponse struct {
 	Message string `json:"message"`
 }
 
+type RemainingEvent struct {
+	EventID string `json:"event_id"`
+}
+
+type RemainingResponse struct {
+	EventID       string `json:"event_id"`
+	TimeRemaining string `json:"time_remaining"`
+}
+
+// global constants
+const MaxTimeoutSeconds = 60 * 120
+
 func main() {
 
 	WEBHOOK_URL := flag.String("webhook_url", "http://localhost:3000/test", "where do you want your emitted event to go?")
 	flag.Parse()
 
-	fmt.Printf("Sending events on webhook URL %s\n", *WEBHOOK_URL)
+	log.Printf("Sending events on webhook URL %s\n", *WEBHOOK_URL)
 
 	mux := http.NewServeMux()
 	state := TimerMap{}
-	state.TimerMap = make(map[string]*time.Timer)
+	state.TimerMap = make(map[string]TimerMapValue)
 	var wg sync.WaitGroup
 
 	// System goroutine;
@@ -62,19 +83,19 @@ func main() {
 		// Parse JSON
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			fmt.Println(fmt.Errorf("Something broke -> %v", err))
+			log.Println(fmt.Errorf("Something broke -> %v", err))
 		}
 		var request TimeoutEvent
 		err = json.Unmarshal(body, &request)
 		if err != nil {
-			fmt.Println(fmt.Errorf("Something broke -> %v", err))
+			log.Println(fmt.Errorf("Something broke -> %v", err))
 		}
 
-		fmt.Printf("Recieved request -> ID %s TIMEOUT %d EMIT %s\n", request.EventID, request.TimeoutSecs, request.Emit)
+		log.Printf("Recieved request -> ID %s TIMEOUT %d EMIT %s\n", request.EventID, request.TimeoutSecs, request.Emit)
 
 		// validate the request
-		if request.TimeoutSecs > 60*60 || request.TimeoutSecs <= 0 {
-			fmt.Println(fmt.Errorf("Duration of %d is illegal!", request.TimeoutSecs))
+		if request.TimeoutSecs > MaxTimeoutSeconds || request.TimeoutSecs <= 0 {
+			log.Println(fmt.Errorf("Duration of %d is illegal!", request.TimeoutSecs))
 			// send the error message to the webhook
 		}
 
@@ -85,7 +106,7 @@ func main() {
 			timeInitiated := time.Now()
 
 			cancelInstance := time.AfterFunc(time.Duration(request.TimeoutSecs)*time.Second, func() {
-				fmt.Println("Emitting Event -> ", request)
+				log.Println("Emitting Event -> ", request)
 				// Make the webhook call with emit
 				response := TimeoutMessage{
 					EventID:       request.EventID,
@@ -94,7 +115,7 @@ func main() {
 				}
 				response_bytes, err := json.Marshal(response)
 				if err != nil {
-					fmt.Println(fmt.Errorf("Something went wrong -> %v", err))
+					log.Println(fmt.Errorf("Something went wrong -> %v", err))
 				}
 				// TODO better error handling and logging
 				http.Post(*WEBHOOK_URL, "application/json", bytes.NewReader(response_bytes))
@@ -102,7 +123,11 @@ func main() {
 
 			// Add metadata
 			state.Lock()
-			state.TimerMap[request.EventID] = cancelInstance
+			state.TimerMap[request.EventID] = TimerMapValue{
+				timer:    cancelInstance,
+				duration: time.Duration(request.TimeoutSecs) * time.Second,
+				initTime: timeInitiated,
+			}
 			state.Unlock()
 		}()
 
@@ -113,19 +138,50 @@ func main() {
 		// parse all the arguments
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			fmt.Println(fmt.Errorf("Something broke -> %v", err))
+			log.Println(fmt.Errorf("Something broke -> %v", err))
 		}
 		var request CancelEvent
 		err = json.Unmarshal(body, &request)
 		if err != nil {
-			fmt.Println(fmt.Errorf("Something broke -> %v", err))
+			log.Println(fmt.Errorf("Something broke -> %v", err))
 		}
 
-		fmt.Printf("Recieved cancel request -> ID %s \n", request.EventID)
+		log.Printf("Recieved cancel request -> ID %s \n", request.EventID)
 
 		state.Lock()
-		state.TimerMap[request.EventID].Stop()
+		state.TimerMap[request.EventID].timer.Stop()
 		state.Unlock()
+	})
+
+	mux.HandleFunc("POST /remaining", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			log.Println(fmt.Errorf("%v", err))
+		}
+
+		var request RemainingEvent
+		err = json.Unmarshal(body, &request)
+		if err != nil {
+		}
+
+		state.Lock()
+		timerMapValue := state.TimerMap[request.EventID]
+
+		diff := time.Now().Sub(timerMapValue.initTime)
+		remaining := state.TimerMap[request.EventID].duration - diff
+
+		state.Unlock()
+
+		response := RemainingResponse{
+			EventID:       request.EventID,
+			TimeRemaining: remaining.String(),
+		}
+
+		response_bytes, err := json.Marshal(response)
+		if err != nil {
+			log.Println(fmt.Errorf("Something went wrong -> %v", err))
+		}
+		w.Write(response_bytes)
 	})
 
 	// placeholder for the webhook
@@ -134,15 +190,15 @@ func main() {
 		// parse all the arguments
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			fmt.Println(fmt.Errorf("Something broke -> %v", err))
+			log.Println(fmt.Errorf("Something broke -> %v", err))
 		}
 		var request TimeoutMessage
 		err = json.Unmarshal(body, &request)
 		if err != nil {
-			fmt.Println(fmt.Errorf("Something broke -> %v", err))
+			log.Println(fmt.Errorf("Something broke -> %v", err))
 		}
 
-		fmt.Printf("Recieved webhook request -> ID %s Message -> %s\n", request.EventID, request.Message)
+		log.Printf("Recieved webhook request -> ID %s Message -> %s\n", request.EventID, request.Message)
 
 	})
 
@@ -151,7 +207,7 @@ func main() {
 
 	// Spawn server goroutine
 	go func() {
-		fmt.Println("Starting server ...")
+		log.Println("Starting server ...")
 		err := http.ListenAndServe(":3000", mux)
 		if err != nil {
 			fmt.Println(fmt.Errorf("Error in server -> %v", err))
