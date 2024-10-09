@@ -12,56 +12,6 @@ import (
 	"time"
 )
 
-// global structure defintions
-
-type TimerMapValue struct {
-	timer    *time.Timer
-	duration time.Duration
-	initTime time.Time
-}
-
-type TimerMap struct {
-	sync.Mutex
-	// This is the actual map that contains the list of timer objects
-	TimerMap   map[string]TimerMapValue
-	cancelList []string
-}
-
-// Input event type
-type TimeoutEvent struct {
-	EventID     string `json:"event_id"`
-	TimeoutSecs int    `json:"timeout_seconds"`
-	Emit        string `json:"emit"`
-}
-
-// This is the response that's sent to the webhook
-type TimeoutMessage struct {
-	EventID       string `json:"event_id"`
-	Message       string `json:"message"`
-	TimeInitiated string `json:"time_initiated"`
-}
-
-// Input cancel event struct
-type CancelEvent struct {
-	EventID string `json:"event_id"`
-}
-
-type CancelResponse struct {
-	Message string `json:"message"`
-}
-
-type RemainingEvent struct {
-	EventID string `json:"event_id"`
-}
-
-type RemainingResponse struct {
-	EventID       string `json:"event_id"`
-	TimeRemaining string `json:"time_remaining"`
-}
-
-// global constants
-const MaxTimeoutSeconds = 60 * 120
-
 func main() {
 
 	WEBHOOK_URL := flag.String("webhook_url", "http://localhost:3000/test", "where do you want your emitted event to go?")
@@ -149,24 +99,70 @@ func main() {
 		log.Printf("Recieved cancel request -> ID %s \n", request.EventID)
 
 		state.Lock()
-		state.TimerMap[request.EventID].timer.Stop()
-		state.Unlock()
+
+		cancelTimerHandle, ok := state.TimerMap[request.EventID]
+		if !ok {
+			state.Unlock()
+			cancelResposne, err := json.Marshal(&CancelResponse{
+				Message: fmt.Sprintf("No event with event_id %q has been registered", request.EventID),
+			})
+			if err != nil {
+				log.Println(fmt.Errorf("Something broke -> %v", err))
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write(cancelResposne)
+			return
+		}
+
+		timerStopRequest := cancelTimerHandle.timer.Stop()
+		if !timerStopRequest {
+			state.Unlock()
+
+			// NOTE:
+			// Failed to get an event with EventID
+			cancelResposne, err := json.Marshal(&CancelResponse{
+				Message: fmt.Sprintf("Event with event_id %q has already been stopped", request.EventID),
+			})
+			if err != nil {
+				log.Println(fmt.Errorf("Something broke -> %v", err))
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write(cancelResposne)
+
+			return
+		} else {
+			state.TimerMap[request.EventID].timer.Stop()
+			// NOTE: Pointless to set to TimerMapValaue{}
+			state.Unlock()
+		}
+
+		cancelResponseBytes, err := json.Marshal(&CancelResponse{
+			EventID: request.EventID,
+			Message: fmt.Sprintf("Cancelled event with event_id %q", request.EventID),
+		})
+
+		w.WriteHeader(http.StatusOK)
+		w.Write(cancelResponseBytes)
 	})
 
 	mux.HandleFunc("POST /remaining", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			log.Println(fmt.Errorf("%v", err))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 
 		var request RemainingEvent
 		err = json.Unmarshal(body, &request)
 		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 
 		state.Lock()
-		timerMapValue := state.TimerMap[request.EventID]
 
+		timerMapValue := state.TimerMap[request.EventID]
 		diff := time.Now().Sub(timerMapValue.initTime)
 		remaining := state.TimerMap[request.EventID].duration - diff
 
@@ -180,8 +176,121 @@ func main() {
 		response_bytes, err := json.Marshal(response)
 		if err != nil {
 			log.Println(fmt.Errorf("Something went wrong -> %v", err))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
+		w.WriteHeader(http.StatusOK)
 		w.Write(response_bytes)
+	})
+
+	// NOTE:
+	// elimintate a 3 round trips for
+	// remaining -> cancel -> register
+	mux.HandleFunc("POST /extend", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			log.Println(fmt.Errorf("%v", err))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		var request ExtendEvent
+
+		err = json.Unmarshal(body, &request)
+		if err != nil {
+			log.Println(fmt.Errorf("Something broke -> %v", err))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		log.Printf("Recieved extend event | ID %s TIMEOUT %d EMIT %s\n", request.EventID, request.TimeoutSecs, request.Emit)
+
+		if request.TimeoutSecs > MaxTimeoutSeconds || request.TimeoutSecs <= 0 {
+			log.Println(fmt.Errorf("Duration of %d is illegal!", request.TimeoutSecs))
+			return
+		}
+
+		// get a lock on the state's TimerMap
+		state.Lock()
+
+		cancelTimerHandle, ok := state.TimerMap[request.EventID]
+		if !ok {
+			state.Unlock()
+
+			extendResponse, err := json.Marshal(&ExtendResponse{
+				EventID: request.EventID,
+				Message: fmt.Sprintf("No event with event_id %s has been registered", request.EventID),
+			})
+
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write(extendResponse)
+			return
+		}
+
+		diff := time.Now().Sub(cancelTimerHandle.initTime)
+		remaining := state.TimerMap[request.EventID].duration - diff
+		extraDuration := time.Duration(request.TimeoutSecs) * time.Second
+
+		extendedTime := remaining + extraDuration
+
+		// stop the current Timer that will be fired with AfterFunc
+		// create a new cancelInstance in place of the one already
+		// present in timer map
+		cancelTimerHandle.timer.Stop()
+		timeInitiated := time.Now()
+
+		state.Unlock()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			log.Printf("Extended duration to %q for event_id %s", extendedTime, request.EventID)
+
+			cancelInstance := time.AfterFunc(extendedTime, func() {
+				log.Println("Emitting Event -> ", request)
+				responseBytes, err := json.Marshal(&TimeoutMessage{
+					EventID:       request.EventID,
+					Message:       request.Emit,
+					TimeInitiated: timeInitiated.String(),
+				})
+
+				if err != nil {
+					log.Println(fmt.Errorf("Something went wrong -> %v", err))
+				}
+
+				http.Post(*WEBHOOK_URL, "application/json", bytes.NewReader(responseBytes))
+			})
+
+			state.Lock()
+			state.TimerMap[request.EventID] = TimerMapValue{
+				timer:    cancelInstance,
+				duration: extendedTime,
+				initTime: timeInitiated,
+			}
+			log.Printf("Updated State EVENT %s EXTENDED TIME %q",
+				request.EventID,
+				state.TimerMap[request.EventID].duration,
+			)
+			state.Unlock()
+		}()
+
+		extendEvetResponse, err := json.Marshal(&ExtendResponse{
+			EventID: request.EventID,
+			Message: fmt.Sprintf("Extended timer for event_id %s", request.EventID),
+		})
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write(extendEvetResponse)
+
 	})
 
 	// placeholder for the webhook
