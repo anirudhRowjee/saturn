@@ -104,7 +104,7 @@ func main() {
 		if !ok {
 			state.Unlock()
 			cancelResposne, err := json.Marshal(&CancelResponse{
-				Message: fmt.Sprintf("No event with event_id %q has been registered", request.EventID),
+				Message: fmt.Sprintf("No event with event_id %s has been registered", request.EventID),
 			})
 			if err != nil {
 				log.Println(fmt.Errorf("Something broke -> %v", err))
@@ -121,7 +121,7 @@ func main() {
 			// NOTE:
 			// Failed to get an event with EventID
 			cancelResposne, err := json.Marshal(&CancelResponse{
-				Message: fmt.Sprintf("Event with event_id %q has already been stopped", request.EventID),
+				Message: fmt.Sprintf("Event with event_id %s has already been stopped", request.EventID),
 			})
 			if err != nil {
 				log.Println(fmt.Errorf("Something broke -> %v", err))
@@ -138,7 +138,7 @@ func main() {
 
 		cancelResponseBytes, err := json.Marshal(&CancelResponse{
 			EventID: request.EventID,
-			Message: fmt.Sprintf("Cancelled event with event_id %q", request.EventID),
+			Message: fmt.Sprintf("Cancelled event with event_id %s", request.EventID),
 		})
 
 		w.WriteHeader(http.StatusOK)
