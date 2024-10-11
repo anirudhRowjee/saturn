@@ -7,6 +7,9 @@ import (
 
 // global structure defintions
 
+// Holding more contextual information
+// associated with a timer, specifically
+// for extentions in timer
 type TimerMapValue struct {
 	timer    *time.Timer
 	duration time.Duration
@@ -30,6 +33,7 @@ type TimeoutEvent struct {
 // Input event type
 type TimeoutResponse struct {
 	EventID string `json:"event_id"`
+	Message string `json:"message"`
 }
 
 // This is the response that's sent to the webhook
@@ -56,13 +60,12 @@ type RemainingEvent struct {
 type RemainingResponse struct {
 	EventID       string `json:"event_id"`
 	TimeRemaining string `json:"time_remaining"`
+	Message       string `json:"message"`
 }
 
 type ExtendEvent struct {
 	EventID     string `json:"event_id"`
 	TimeoutSecs int    `json:"timeout_seconds"`
-	Emit        string `json:"emit"`
-	// Preserve the original emit event
 }
 
 type ExtendResponse struct {
@@ -71,4 +74,4 @@ type ExtendResponse struct {
 }
 
 // global constants
-const MaxTimeoutSeconds = 60 * 120
+const MaxTimeoutSeconds = time.Duration(60 * 120) * time.Second
