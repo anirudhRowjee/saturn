@@ -4,7 +4,7 @@ Saturn is an in-memory timer daemon built on golang's `time.AfterFunc`. It fires
 
 ## Usage 
 
-```bash
+```sh
 # if you have a pre-defined webhook URL:
 $ go run main.go --webhook_url="http://<YOUR API ENDPOINT HERE>"
 # if you don't, and just want to see how it works
@@ -13,12 +13,11 @@ $ go run main.go
 
 Submit a POST request of the following format:
 
-```
+```sh
 curl --header "Content-Type: application/json" \
   --request POST \
   --data '{ "event_id": "first", "timeout_seconds": 10, "emit": "lol" }' \
   http://localhost:3000/register
-
 ```
 
 And recieve a POST request on a specified webhook URL, after 10 seconds, with the following format:
@@ -28,11 +27,33 @@ And recieve a POST request on a specified webhook URL, after 10 seconds, with th
 
 Alternatively, you can cancel a timeout with the following  -
 
-```
+```sh
 curl --header "Content-Type: application/json" \
   --request POST \
   --data '{ "event_id": "first" }' \
   http://localhost:3000/cancel
+
+```
+
+You can request for the remaining time with the following request format:
+
+```sh 
+curl --header "Content-Type: application/json" \
+  --request POST \
+  --data '{ "event_id": "first" }' \
+  http://localhost:3000/remaining
+```
+
+You can extend the timer for an event with the format:
+
+```sh
+curl --header "Content-Type: application/json" \
+  --request POST \
+  --data '{ "event_id": "first", "timeout_seconds": 10, "emit": "lol" }' \
+  http://localhost:3000/extend
+```
+
+Once the timer is finished, we recieve a POST request in the similar format as mentioned before
 
 ```
 
