@@ -46,7 +46,7 @@ func main() {
 		// validate the request
 		if time.Duration(request.TimeoutSecs)*time.Second > MaxTimeoutSeconds || request.TimeoutSecs <= 0 {
 			log.Println(fmt.Errorf("Duration of %d is illegal!", request.TimeoutSecs))
-			extendReponseBytes, err := json.Marshal(ExtendResponse{
+			extendReponseBytes, err := json.Marshal(TimeoutResponse{
 				EventID: request.EventID,
 				Message: fmt.Sprintf("Illegal duration of %d seconds", request.TimeoutSecs),
 			})
@@ -78,6 +78,7 @@ func main() {
 			if ok {
 				log.Printf("Existing timer attached with event %s\n", request.EventID)
 				state.Unlock()
+				// BUG:
 				// w.WriteHeader(http.StatusBadRequest)
 				w.Write([]byte(fmt.Sprintf("Existing timer attached with event %s", request.EventID)))
 				return
@@ -306,6 +307,7 @@ func main() {
 			extendedDuration := remaining + extraDuration
 
 			if extendedDuration > MaxTimeoutSeconds || request.TimeoutSecs <= 0 {
+				state.Unlock()
 				log.Println(fmt.Errorf("Duration of %d is illegal!", request.TimeoutSecs))
 				extendReponseBytes, err := json.Marshal(ExtendResponse{
 					EventID: request.EventID,
@@ -339,6 +341,7 @@ func main() {
 				EventID: request.EventID,
 				Message: fmt.Sprintf("Extended timer for event_id %s with duration %s", request.EventID, extendedDuration.String()),
 			})
+
 			if err != nil {
 				log.Println(fmt.Errorf("Something broke -> %v", err))
 				w.WriteHeader(http.StatusInternalServerError)
